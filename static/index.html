@@ -96,7 +96,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
       <div class="welcome" id="welcome">
         <h2>Welcome to Amni-Code</h2>
         <p>Your AI coding agent. Type anything below — ask it to build features, fix bugs, create files, run commands, or explain code. It will do the work for you.</p>
-        <p style="color:var(--text2);font-size:12px;margin-top:6px">Click ⚙ to configure your AI provider (Ollama by default)</p>
+        <p style="color:var(--text2);font-size:12px;margin-top:6px">Click ⚙ to configure your AI provider (xAI Grok by default)</p>
         <div class="keys">
           <div class="key" onclick="fillPrompt('Create a Python Flask API with user auth')">Build an API</div>
           <div class="key" onclick="fillPrompt('Find and fix the bug in main.py')">Debug code</div>
@@ -129,11 +129,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   <h2>Settings</h2>
   <label>Provider</label>
   <select id="cfg-provider">
-    <option value="ollama">Ollama (Local)</option>
-    <option value="local">Custom Local Server</option>
+    <option value="xai">xAI (Grok)</option>
     <option value="openai">OpenAI</option>
     <option value="anthropic">Anthropic</option>
-    <option value="xai">xAI (Grok)</option>
+    <option value="ollama">Ollama (Local)</option>
+    <option value="local">Custom Local Server</option>
   </select>
   <label>Model</label>
   <select id="cfg-model"><option>Loading...</option></select>

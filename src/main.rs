@@ -23,17 +23,18 @@ struct Config {
 }
 impl Default for Config {
     fn default() -> Self {
-        let key = std::env::var("OPENAI_API_KEY").or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
-            .or_else(|_| std::env::var("XAI_API_KEY")).unwrap_or_default();
-        let provider = if !std::env::var("ANTHROPIC_API_KEY").unwrap_or_default().is_empty() { "anthropic" }
+        let key = std::env::var("XAI_API_KEY").or_else(|_| std::env::var("OPENAI_API_KEY"))
+            .or_else(|_| std::env::var("ANTHROPIC_API_KEY")).unwrap_or_default();
+        let provider = if !std::env::var("XAI_API_KEY").unwrap_or_default().is_empty() { "xai" }
             else if !std::env::var("OPENAI_API_KEY").unwrap_or_default().is_empty() { "openai" }
-            else if !std::env::var("XAI_API_KEY").unwrap_or_default().is_empty() { "xai" }
-            else { "ollama" };
+            else if !std::env::var("ANTHROPIC_API_KEY").unwrap_or_default().is_empty() { "anthropic" }
+            else { "xai" };
         let (model, base_url) = match provider {
             "openai" => ("gpt-4o".to_string(), "https://api.openai.com".to_string()),
             "anthropic" => ("claude-sonnet-4-20250514".to_string(), "https://api.anthropic.com".to_string()),
-            "xai" => ("grok-3".to_string(), "https://api.x.ai".to_string()),
-            _ => (String::new(), "http://localhost:11434".to_string()),
+            "ollama" => (String::new(), "http://localhost:11434".to_string()),
+            "local" => (String::new(), "http://localhost:11434".to_string()),
+            _ => ("grok-3".to_string(), "https://api.x.ai".to_string()),
         };
         Self { provider: provider.into(), model, api_key: key, base_url, auto_approve: false,
             working_dir: std::env::current_dir().unwrap_or_default().to_string_lossy().into(),
@@ -295,6 +296,18 @@ async fn serve_ui() -> Html<&'static str> { Html(include_str!("../static/index.h
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let cwd = std::env::current_dir().unwrap_or_default();
+    let env_path = cwd.join(".env");
+    if env_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&env_path) {
+            for line in content.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') { continue; }
+                if let Some((k, v)) = line.split_once('=') {
+                    std::env::set_var(k.trim(), v.trim());
+                }
+            }
+        }
+    }
     println!("\n  Amni-Code v1.0.0 — AI Coding Agent");
     println!("  Working dir: {}", cwd.display());
     let app = App {

@@ -1,160 +1,145 @@
-# Amni-Code Agent Tutorial
+# Amni-Code Tutorial
 
-Amni-Code is a custom AI coding assistant built in Rust with a web-based UI inspired by Ollama and Claude Code, featuring advanced VSCode-like capabilities.
+Amni-Code is an open-source AI coding agent built in Rust. It gives an LLM real tools to read, write, and edit files, run shell commands, and search your codebase — all from a browser UI at `localhost:3000`.
 
-## Installation
+## One-Click Install (Windows)
 
-### Option 1: GUI Installer (Recommended)
+The fastest way to get started:
 
-1. **Download and Run**:
-   ```bash
-   git clone https://github.com/anmire/Amni-Code.git
-   cd amni-code
-   install.bat
-   # Choose option [1] for GUI Installer
-   ```
-
-2. **What the GUI Installer Provides**:
-   - **Progress bars** showing installation progress
-   - **Real-time logging** of all steps
-   - **Interactive prompts** for hardware setup
-   - **Visual feedback** throughout the process
-   - **Desktop shortcut** creation
-   - **Hardware detection** with specific guidance for AMD/NVIDIA
-
-### Option 2: Command-Line Installer
-
-1. **Run Command-Line Version**:
-   ```bash
-   install.bat
-   # Choose option [2] for Command-Line Installer
-   ```
-
-2. **What it does**:
-   - Same functionality as GUI installer
-   - Text-based with step counters
-   - Faster for experienced users
-   - Suitable for automation
-
-### What Both Installers Do
-
-- ✅ Install Rust toolchain if needed
-- ✅ Set up Python (from Microsoft Store if required)
-- ✅ Detect NVIDIA/AMD GPUs and configure acceleration
-- ✅ Prompt for HIP/ROCm installation on AMD GPUs
-- ✅ Install all Python dependencies (PyTorch, transformers, etc.)
-- ✅ Build the Rust application
-- ✅ Download AI models from HuggingFace
-- ✅ Set up everything for immediate use
-
-## Running the Application
-
-1. **Start the Server**:
-   ```bash
-   target\release\amni-code.exe
-   ```
-
-2. **Open in Browser**:
-   - Navigate to `http://localhost:3000`
-   - The web interface will load
-
-## User Interface
-
-### Main Chat Interface
-- **Sidebar**: Model selection and chat history
-- **Main Area**: Chat with the AI assistant
-- **Input**: Type your questions or code requests
-- **Send**: Click Send or press Enter
-
-### Advanced Features (VSCode-like)
-
-#### Code Editor Tab
-- Edit code directly in the browser
-- Syntax highlighting (basic)
-- Save/load code snippets
-
-#### Terminal Tab
-- Simulate command execution
-- Run shell commands through the AI
-- View output in real-time
-
-#### Files Tab
-- Browse project file structure
-- Open files for editing
-- File operations through AI
-
-## Model Selection
-
-Currently supports mock responses. Future versions will include:
-- **Qwen3.5-9B-Neo**: Full-featured model for complex tasks
-- **MLX-Qwen3.5-4B**: Optimized lightweight model
-
-Models will support both safetensors and GGUF formats automatically.
-
-## Usage Examples
-
-### Code Generation
-```
-Write a Python function to calculate fibonacci numbers recursively.
+```bash
+# Download and run the quickstart script
+curl -L -o quickstart.bat https://raw.githubusercontent.com/anmire/Amni-Code/main/quickstart.bat
+quickstart.bat
 ```
 
-### Code Review
-```
-Review this JavaScript code and suggest improvements:
-[ paste your code ]
-```
+This will:
+1. Clone the repository
+2. Prompt you for API keys (xAI Grok, OpenAI, Anthropic — press Enter to skip any)
+3. Install Rust if needed
+4. Build the application
+5. Launch it at http://localhost:3000
 
-### Terminal Commands
-```
-Help me set up a new React project with TypeScript.
-```
-
-### File Operations
-```
-Create a new file called utils.js with helper functions.
+### Already cloned? Just run:
+```bash
+cd Amni-Code
+quickstart.bat
 ```
 
-## Current Status
+## GUI Installer
 
-**Version 0.3.0**: Basic UI with mock AI responses
-- ✅ Web-based interface inspired by Ollama/Claude
-- ✅ Advanced VSCode-like panels (Code Editor, Terminal, Files)
-- ✅ Rust backend with Axum server
-- ✅ Standalone executable (no external dependencies)
-- 🚧 Model integration (coming in next version)
-- 🚧 GPU acceleration (coming in next version)
+For a guided experience with progress bars and hardware detection:
 
-## Development
+```bash
+git clone https://github.com/anmire/Amni-Code.git
+cd Amni-Code
+install.bat
+```
 
-To modify the application:
-1. Edit Rust code in `src/main.rs`
-2. Modify frontend in `static/`
-3. Rebuild with `cargo build --release`
+The GUI installer provides:
+- Real-time progress tracking
+- GPU detection (NVIDIA CUDA / AMD HIP/ROCm)
+- API key entry fields for xAI, OpenAI, and Anthropic
+- Desktop shortcut creation
+- One-click launch after install
+
+## Manual Build
+
+```bash
+git clone https://github.com/anmire/Amni-Code.git
+cd Amni-Code
+cargo build --release
+target\release\amni-code.exe
+```
+
+## Setting Up API Keys
+
+Amni-Code defaults to **xAI Grok**. You need at least one API key from a supported provider.
+
+### During Installation
+The quickstart script and GUI installer both prompt for API keys. They're saved to a `.env` file (gitignored).
+
+### After Installation
+1. Open http://localhost:3000
+2. Click the **⚙ Settings** button (top right)
+3. Select your **Provider** (xAI, OpenAI, Anthropic, Ollama)
+4. Enter your **API Key**
+5. Close the settings panel — changes save automatically
+
+### Manual `.env` File
+Create a `.env` file in the Amni-Code directory:
+```
+XAI_API_KEY=xai-your-key-here
+OPENAI_API_KEY=sk-your-key-here
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+```
+
+## Using Amni-Code
+
+### Chat Interface
+Type anything in the text box and press Enter. The agent will:
+- Read files to understand your codebase
+- Write or edit files to implement changes
+- Run shell commands (build, test, install)
+- Search across your project for relevant code
+- Iterate up to 15 times per request to complete complex tasks
+
+### Example Prompts
+
+**Build something:**
+```
+Create a Python Flask API with user authentication and a SQLite database.
+```
+
+**Debug code:**
+```
+Find and fix the bug in main.py — the server crashes on startup.
+```
+
+**Explore a codebase:**
+```
+Explain how this project is structured and what each module does.
+```
+
+**Scaffold a project:**
+```
+Set up a new React project with TypeScript, ESLint, and Tailwind CSS.
+```
+
+### Code Diff Panel
+Click the **diff icon** (top right) to see every file change the agent makes. Shows added/removed lines for each file.
+
+### Auto-Approve Mode
+In Settings, toggle **Auto-approve all agent actions**:
+- **Off** (default): You see what the agent wants to do before it executes
+- **On**: The agent acts fully autonomously
+
+### Working Directory
+The agent operates in the directory shown in Settings. Change it to point at any project on your machine.
+
+## Supported Providers
+
+| Provider | Models | API Key Env Var |
+|----------|--------|-----------------|
+| **xAI** (default) | grok-3, grok-3-mini, grok-2 | `XAI_API_KEY` |
+| **OpenAI** | gpt-4o, gpt-4o-mini, o1, o3-mini | `OPENAI_API_KEY` |
+| **Anthropic** | claude-sonnet-4, claude-opus-4, claude-3.5-haiku | `ANTHROPIC_API_KEY` |
+| **Ollama** | Any local model | (none needed) |
+| **Custom** | Any OpenAI-compatible server | (none needed) |
 
 ## Troubleshooting
 
-### Common Issues
-- **Port 3000 busy**: Change port in `src/main.rs`
-- **Build fails**: Ensure Rust is installed correctly
-- **Browser doesn't load**: Check firewall/antivirus
+**Port 3000 busy:** Another app is using port 3000. Kill it or change the port in `src/main.rs` and rebuild.
 
-### Performance Tips
-- The app currently runs mock responses for instant feedback
-- Real model integration will require significant RAM (16GB+)
+**Build fails:** Make sure Rust is installed: `rustup --version`. If not, run `quickstart.bat` or install from https://rustup.rs.
 
-## Future Features
+**"Request failed" error:** Your API key may be invalid or the provider is unreachable. Check Settings and verify your key.
 
-- **Model Downloads**: Automatic download from HuggingFace
-- **Hardware Acceleration**: CUDA/HIP GPU support
-- **Multiple Models**: Support for various Qwen and other models
-- **Advanced Code Features**: Syntax highlighting, IntelliSense-like suggestions
-- **File System Integration**: Direct file operations
-- **Terminal Integration**: Real command execution
+**Ollama not responding:** Make sure Ollama is running (`ollama serve`) and accessible at `http://localhost:11434`.
 
 ## Contributing
 
-This is a custom implementation inspired by existing tools but built from scratch. Contributions welcome!
+See [README.md](README.md#contributing) for contribution guidelines.
 
 ## License
 
-[Add your license here]
+MIT — see [LICENSE](LICENSE).

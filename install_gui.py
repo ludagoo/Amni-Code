@@ -273,6 +273,38 @@ class GUInstaller:
         )
         shortcut_check.grid(row=0, column=0, sticky='w')
 
+        # API Key configuration section
+        apikey_frame = ttk.Frame(main_container, style='Card.TFrame', padding="15")
+        apikey_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        apikey_frame.columnconfigure(1, weight=1)
+        apikey_title = ttk.Label(apikey_frame, text="API Key Setup (optional — configure now or later in Settings)",
+                                style='Modern.TLabel', font=('Segoe UI', 11, 'bold'))
+        apikey_title.grid(row=0, column=0, columnspan=3, sticky=tk.W, pady=(0, 10))
+        providers = [
+            ("xAI (Grok) — default", "XAI_API_KEY", "xai-..."),
+            ("OpenAI", "OPENAI_API_KEY", "sk-..."),
+            ("Anthropic", "ANTHROPIC_API_KEY", "sk-ant-..."),
+        ]
+        self.api_key_entries = {}
+        for i, (label, env_var, placeholder) in enumerate(providers):
+            lbl = tk.Label(apikey_frame, text=label, bg=self.colors['bg_secondary'],
+                          fg=self.colors['text_secondary'], font=('Segoe UI', 9), anchor='w')
+            lbl.grid(row=i+1, column=0, sticky='w', padx=(0, 10), pady=2)
+            entry = tk.Entry(apikey_frame, bg=self.colors['bg_primary'], fg=self.colors['text_primary'],
+                           insertbackground=self.colors['text_primary'], font=('Consolas', 9),
+                           relief='flat', borderwidth=1, show='*')
+            entry.insert(0, os.environ.get(env_var, ''))
+            entry.grid(row=i+1, column=1, sticky='ew', padx=(0, 5), pady=2)
+            show_btn = tk.Button(apikey_frame, text='👁', bg=self.colors['bg_secondary'],
+                                fg=self.colors['text_secondary'], relief='flat', borderwidth=0,
+                                font=('Segoe UI', 8), cursor='hand2',
+                                command=lambda e=entry: e.config(show='' if e.cget('show') == '*' else '*'))
+            show_btn.grid(row=i+1, column=2, padx=2, pady=2)
+            self.api_key_entries[env_var] = entry
+        hint = tk.Label(apikey_frame, text="Keys are saved to .env — never committed to git. You can also set them in the app's Settings panel.",
+                       bg=self.colors['bg_secondary'], fg=self.colors['text_secondary'], font=('Segoe UI', 8))
+        hint.grid(row=len(providers)+1, column=0, columnspan=3, sticky='w', pady=(6, 0))
+
         # Right side - Action buttons
         right_frame = ttk.Frame(buttons_frame, style='Modern.TFrame')
         right_frame.grid(row=0, column=1, sticky='e')
@@ -471,6 +503,9 @@ class GUInstaller:
             self.update_progress((current_step / total_steps) * 100, f"Step {current_step}/8: Detecting hardware")
             self.installer.detect_hardware()
 
+            # Step 3.5: Save API keys to .env
+            self.save_api_keys()
+
             # Step 4: Install Python deps
             if self.installation_cancelled:
                 return
@@ -540,6 +575,20 @@ class GUInstaller:
     def show_error(self, message):
         self.log(f"ERROR: {message}")
         messagebox.showerror("Installation Failed", message)
+
+    def save_api_keys(self):
+        env_path = Path(__file__).parent / ".env"
+        lines = []
+        for env_var, entry in self.api_key_entries.items():
+            val = entry.get().strip()
+            if val:
+                lines.append(f"{env_var}={val}")
+                os.environ[env_var] = val
+        if lines:
+            env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            self.log(f"Saved {len(lines)} API key(s) to .env")
+        else:
+            self.log("No API keys configured — you can add them later in Settings.")
 
 class AmniCodeInstaller:
     def __init__(self):

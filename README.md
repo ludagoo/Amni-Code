@@ -19,23 +19,46 @@ Amni-Code is a **self-hosted AI coding agent** — think Claude Code or Cursor, 
 
 **Key features:**
 - **Agentic tool loop** — The AI can read files, edit code, run commands, list directories, and search across your project — up to 15 iterations per request, fully autonomous.
-- **Any LLM provider** — Ollama (local), OpenAI, Anthropic, xAI (Grok), or any OpenAI-compatible server.
+- **Any LLM provider** — xAI (Grok), OpenAI, Anthropic, Ollama (local), or any OpenAI-compatible server.
 - **Single binary + embedded UI** — One Rust binary serves everything. No Node, no Docker, no electron. Just run it.
 - **Code diff panel** — See every file change the agent makes in a side-by-side diff view.
 - **Auto-approve toggle** — Watch every action before it executes, or let the agent run freely.
-- **Zero config to start** — Point it at Ollama and go.
+- **Defaults to xAI Grok** — Works out of the box with a Grok API key. Switch providers anytime in Settings.
 
 ## Quick Start
 
-### Option 1: One-click installer (Windows)
+### One-Click Quickstart (Windows)
+
+Download and run [`quickstart.bat`](quickstart.bat) — it clones the repo, prompts for your API key(s), builds, and launches:
+
+```bash
+curl -L -o quickstart.bat https://raw.githubusercontent.com/anmire/Amni-Code/main/quickstart.bat
+quickstart.bat
+```
+
+Or clone and run it yourself:
+```bash
+git clone https://github.com/anmire/Amni-Code.git
+cd Amni-Code
+quickstart.bat
+```
+
+You'll be prompted for API keys during setup (press Enter to skip any):
+```
+  xAI API Key (xai-...): _______________
+  OpenAI API Key (sk-...): _______________
+  Anthropic API Key (sk-ant-...): _______________
+```
+
+### GUI Installer (Windows)
 ```bash
 git clone https://github.com/anmire/Amni-Code.git
 cd Amni-Code
 install.bat
 ```
-The GUI installer handles Rust, Python, GPU detection, model downloads, and building.
+The GUI installer handles Rust, Python, GPU detection, API key configuration, model downloads, and building.
 
-### Option 2: Build from source
+### Build from Source
 ```bash
 git clone https://github.com/anmire/Amni-Code.git
 cd Amni-Code
@@ -44,7 +67,7 @@ target\release\amni-code.exe   # Windows
 # or: ./target/release/amni-code  # Linux/macOS
 ```
 
-### Option 3: Just run it
+### Just Run It
 ```bash
 .\run.bat   # Windows — auto-installs Rust and builds if needed
 ```
@@ -97,21 +120,25 @@ Click the **⚙ Settings** button in the UI to configure:
 
 | Setting | Description |
 |---------|-------------|
-| **Provider** | Ollama, OpenAI, Anthropic, xAI, or any OpenAI-compatible server |
+| **Provider** | xAI (Grok), OpenAI, Anthropic, Ollama, or any OpenAI-compatible server |
 | **Model** | Auto-populated from your provider. Pick any model. |
-| **API Key** | Required for cloud providers. Auto-detected from env vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `XAI_API_KEY`) |
-| **Base URL** | Server URL. Defaults to `http://localhost:11434` for Ollama |
+| **API Key** | Required for cloud providers. Auto-detected from `.env` file or env vars (`XAI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) |
+| **Base URL** | Server URL. Defaults to `https://api.x.ai` for Grok, `http://localhost:11434` for Ollama |
 | **Working Directory** | The directory the agent operates in |
 | **Auto-approve** | When off, you confirm each action. When on, fully autonomous. |
 
-### Environment Variables
+### API Keys
+
+Amni-Code loads API keys from a `.env` file in the project directory (created by the installer) or from system environment variables:
 
 ```bash
-# Optional — auto-selects provider when set
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-XAI_API_KEY=xai-...
+# .env file (or set as environment variables)
+XAI_API_KEY=xai-...          # xAI Grok (default provider)
+OPENAI_API_KEY=sk-...        # OpenAI
+ANTHROPIC_API_KEY=sk-ant-... # Anthropic
 ```
+
+The `.env` file is gitignored and never committed. You can also enter keys directly in the Settings panel.
 
 ## Hardware Support
 
@@ -139,10 +166,12 @@ Amni-Code/
 ├── static/
 │   └── index.html       # Embedded web UI — chat, settings, diff panel
 ├── Cargo.toml           # Rust dependencies
-├── install.bat          # One-click GUI installer (Windows)
+├── quickstart.bat       # One-click install + API key setup + launch
+├── install.bat          # GUI installer (Windows)
 ├── install.py           # Python installer script
 ├── install_gui.py       # GUI wrapper for installer
 ├── run.bat              # Quick-start launcher
+├── .env                 # Your API keys (gitignored, created by installer)
 └── models/              # Local model storage (gitignored)
 ```
 
