@@ -23,12 +23,14 @@ struct Config {
 }
 impl Default for Config {
     fn default() -> Self {
-        let key = std::env::var("XAI_API_KEY").or_else(|_| std::env::var("OPENAI_API_KEY"))
-            .or_else(|_| std::env::var("ANTHROPIC_API_KEY")).unwrap_or_default();
-        let provider = if !std::env::var("XAI_API_KEY").unwrap_or_default().is_empty() { "xai" }
-            else if !std::env::var("OPENAI_API_KEY").unwrap_or_default().is_empty() { "openai" }
-            else if !std::env::var("ANTHROPIC_API_KEY").unwrap_or_default().is_empty() { "anthropic" }
-            else { "xai" };
+        let xai_key = ["XAI_API_KEY", "GROK_key", "xAI_key", "GROK_API_KEY", "XAI_KEY"]
+            .iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())).unwrap_or_default();
+        let openai_key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
+        let anthropic_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
+        let (provider, key) = if !xai_key.is_empty() { ("xai", xai_key) }
+            else if !openai_key.is_empty() { ("openai", openai_key) }
+            else if !anthropic_key.is_empty() { ("anthropic", anthropic_key) }
+            else { ("xai", String::new()) };
         let (model, base_url) = match provider {
             "openai" => ("gpt-4o".to_string(), "https://api.openai.com".to_string()),
             "anthropic" => ("claude-sonnet-4-20250514".to_string(), "https://api.anthropic.com".to_string()),
