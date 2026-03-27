@@ -180,6 +180,25 @@ a:hover{opacity:.8}
   <div id="model-dir-section" style="display:none">
     <label>Local Model Directory</label>
     <input id="cfg-model-dir" placeholder="e.g. C:\models or ~/models">
+    <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px">
+      <label style="margin-top:0">Download Models from Hugging Face</label>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <input id="hf-search-input" placeholder="Search GGUF models..." style="flex:1">
+        <button onclick="hfSearch()" style="background:var(--accent);border:none;color:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font-family:var(--font);font-size:12px;white-space:nowrap">Search</button>
+      </div>
+      <div id="hf-results" style="max-height:200px;overflow-y:auto;margin-top:8px;font-size:12px"></div>
+      <div id="hf-files" style="max-height:200px;overflow-y:auto;margin-top:4px;font-size:12px"></div>
+      <div id="hf-progress" style="display:none;margin-top:8px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--dim);margin-bottom:4px">
+          <span id="hf-dl-name"></span>
+          <span id="hf-dl-pct">0%</span>
+        </div>
+        <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+          <div id="hf-dl-bar" style="height:100%;background:var(--accent);width:0%;transition:width .3s"></div>
+        </div>
+        <div id="hf-dl-status" style="font-size:11px;color:var(--dim);margin-top:4px"></div>
+      </div>
+    </div>
   </div>
   <div class="toggle-row">
     <span>Auto-approve all agent actions</span>
@@ -478,6 +497,108 @@ $('#cfg-provider').addEventListener('change', () => {
 $('#cfg-url').addEventListener('change', () => { saveConfig().then(() => loadModels()); });
 $('#cfg-model-dir').addEventListener('change', () => { saveConfig().then(() => loadModels()); });
 $('#cfg-dir').addEventListener('change', () => { saveConfig(); loadDirs($('#cfg-dir').value); });
+$('#hf-search-input').addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); hfSearch(); }});
+let hfPollInterval = null;
+function fmtSize(b){
+  if(b >= 1073741824) return (b/1073741824).toFixed(1) + ' GB';
+  if(b >= 1048576) return (b/1048576).toFixed(0) + ' MB';
+  if(b >= 1024) return (b/1024).toFixed(0) + ' KB';
+  return b + ' B';
+}
+async function hfSearch(){
+  const q = $('#hf-search-input').value.trim();
+  if(!q) return;
+  const el = $('#hf-results');
+  el.innerHTML = '<span style="color:var(--dim)">Searching...</span>';
+  $('#hf-files').innerHTML = '';
+  try{
+    const res = await fetch('/api/hf/search?q=' + encodeURIComponent(q));
+    const data = await res.json();
+    if(!data.length){ el.innerHTML = '<span style="color:var(--dim)">No GGUF models found</span>'; return; }
+    el.innerHTML = data.map(m => {
+      const dl = m.downloads >= 1000 ? (m.downloads/1000).toFixed(0) + 'k' : m.downloads;
+      return `<div style="padding:6px 8px;cursor:pointer;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;transition:border-color .2s"
+        onmouseenter="this.style.borderColor='var(--accent)'"
+        onmouseleave="this.style.borderColor='var(--border)'"
+        onclick="hfShowFiles('${escJsStr(m.id)}',this)">
+        <div style="font-weight:600;color:var(--text)">${escHtml(m.id)}</div>
+        <div style="color:var(--dim);font-size:11px">⬇ ${dl} downloads · ♥ ${m.likes}</div>
+      </div>`;
+    }).join('');
+  } catch(e){ el.innerHTML = '<span style="color:var(--error)">Search failed</span>'; }
+}
+async function hfShowFiles(repo, el){
+  const filesEl = $('#hf-files');
+  filesEl.innerHTML = '<span style="color:var(--dim)">Loading files...</span>';
+  try{
+    const res = await fetch('/api/hf/files?repo=' + encodeURIComponent(repo));
+    const files = await res.json();
+    if(!files.length){ filesEl.innerHTML = '<span style="color:var(--dim)">No GGUF files in this repo</span>'; return; }
+    filesEl.innerHTML = '<div style="color:var(--accent);font-weight:600;margin-bottom:6px;font-size:11px">GGUF FILES — ' + escHtml(repo) + '</div>' +
+      files.map(f => `<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:3px">
+        <div style="flex:1;min-width:0">
+          <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(f.name)}">${escHtml(f.name)}</div>
+          <div style="color:var(--dim);font-size:10px">${fmtSize(f.size)}</div>
+        </div>
+        <button onclick="hfDownload('${escJsStr(repo)}','${escJsStr(f.name)}')" style="background:var(--accent);border:none;color:#fff;padding:4px 10px;border-radius:6px;cursor:pointer;font-family:var(--font);font-size:11px;flex-shrink:0;margin-left:8px">Download</button>
+      </div>`).join('');
+  } catch(e){ filesEl.innerHTML = '<span style="color:var(--error)">Failed to load files</span>'; }
+}
+async function hfDownload(repo, file){
+  const progEl = $('#hf-progress');
+  progEl.style.display = 'block';
+  $('#hf-dl-name').textContent = file;
+  $('#hf-dl-pct').textContent = '0%';
+  $('#hf-dl-bar').style.width = '0%';
+  $('#hf-dl-status').textContent = 'Starting download...';
+  try{
+    const res = await fetch('/api/hf/download', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ repo, file })
+    });
+    const data = await res.json();
+    if(data.status === 'exists'){
+      $('#hf-dl-status').textContent = 'Already downloaded: ' + data.path;
+      $('#hf-dl-bar').style.width = '100%';
+      $('#hf-dl-pct').textContent = '100%';
+      return;
+    }
+    if(data.status === 'busy'){
+      $('#hf-dl-status').textContent = data.message;
+      return;
+    }
+    $('#hf-dl-status').textContent = 'Downloading to ' + data.path;
+    if(hfPollInterval) clearInterval(hfPollInterval);
+    hfPollInterval = setInterval(hfPollProgress, 1000);
+  } catch(e){ $('#hf-dl-status').textContent = 'Failed to start download'; }
+}
+async function hfPollProgress(){
+  try{
+    const res = await fetch('/api/hf/progress');
+    const p = await res.json();
+    if(p.total > 0){
+      const pct = Math.round((p.downloaded / p.total) * 100);
+      $('#hf-dl-bar').style.width = pct + '%';
+      $('#hf-dl-pct').textContent = pct + '%';
+      $('#hf-dl-status').textContent = fmtSize(p.downloaded) + ' / ' + fmtSize(p.total);
+    }
+    if(p.done){
+      clearInterval(hfPollInterval);
+      hfPollInterval = null;
+      if(p.error){
+        $('#hf-dl-status').textContent = 'Error: ' + p.error;
+        $('#hf-dl-status').style.color = 'var(--error)';
+      } else {
+        $('#hf-dl-bar').style.width = '100%';
+        $('#hf-dl-pct').textContent = '100%';
+        $('#hf-dl-status').textContent = 'Download complete! Refreshing models...';
+        $('#hf-dl-status').style.color = 'var(--accent)';
+        setTimeout(() => loadModels(), 1000);
+      }
+    }
+  } catch(e){}
+}
 loadConfig();
 const savedTheme = localStorage.getItem('theme');
 if(savedTheme === 'light'){

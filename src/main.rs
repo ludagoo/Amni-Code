@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{Query, State},
     response::{Html, Json},
     routing::{get, post},
     Router,
@@ -8,11 +8,21 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::Arc};
 use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
+#[derive(Clone, Default, Serialize)]
+struct DownloadProgress {
+    repo: String,
+    file: String,
+    downloaded: u64,
+    total: u64,
+    done: bool,
+    error: String,
+}
 #[derive(Clone)]
 struct App {
     sessions: Arc<Mutex<HashMap<String, Session>>>,
     config: Arc<Mutex<Config>>,
     cwd: Arc<Mutex<PathBuf>>,
+    dl_progress: Arc<Mutex<DownloadProgress>>,
 }
 #[derive(Clone, Default)]
 struct Session {
@@ -890,6 +900,238 @@ async fn collect_models(dir: &PathBuf) -> Vec<String> {
     models.sort();
     models
 }
+#[derive(Deserialize)]
+struct HfSearchQuery {
+    q: Option<String>,
+}
+#[derive(Serialize)]
+struct HfModelResult {
+    id: String,
+    downloads: u64,
+    likes: u64,
+    tags: Vec<String>,
+}
+async fn handle_hf_search(Query(q): Query<HfSearchQuery>) -> Json<Vec<HfModelResult>> {
+    let query = q.q.unwrap_or_default();
+    if query.is_empty() {
+        return Json(vec![]);
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .unwrap_or_default();
+    let url = format!(
+        "https://huggingface.co/api/models?search={}&filter=gguf&sort=downloads&direction=-1&limit=20",
+        urlencoding::encode(&query)
+    );
+    let resp = match client.get(&url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("HF search error: {}", e);
+            return Json(vec![]);
+        }
+    };
+    let json: Vec<serde_json::Value> = match resp.json().await {
+        Ok(j) => j,
+        Err(_) => return Json(vec![]),
+    };
+    let results: Vec<HfModelResult> = json
+        .into_iter()
+        .map(|m| HfModelResult {
+            id: m["id"].as_str().unwrap_or("").to_string(),
+            downloads: m["downloads"].as_u64().unwrap_or(0),
+            likes: m["likes"].as_u64().unwrap_or(0),
+            tags: m["tags"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|t| t.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        })
+        .filter(|m| !m.id.is_empty())
+        .collect();
+    Json(results)
+}
+#[derive(Deserialize)]
+struct HfFilesQuery {
+    repo: Option<String>,
+}
+#[derive(Serialize)]
+struct HfFileInfo {
+    name: String,
+    size: u64,
+}
+async fn handle_hf_files(Query(q): Query<HfFilesQuery>) -> Json<Vec<HfFileInfo>> {
+    let repo = q.repo.unwrap_or_default();
+    if repo.is_empty() {
+        return Json(vec![]);
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .unwrap_or_default();
+    let url = format!(
+        "https://huggingface.co/api/models/{}/tree/main",
+        repo
+    );
+    let resp = match client.get(&url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("HF files error: {}", e);
+            return Json(vec![]);
+        }
+    };
+    let json: Vec<serde_json::Value> = match resp.json().await {
+        Ok(j) => j,
+        Err(_) => return Json(vec![]),
+    };
+    let files: Vec<HfFileInfo> = json
+        .iter()
+        .filter_map(|f| {
+            let name = f["path"].as_str()?;
+            if name.ends_with(".gguf") {
+                Some(HfFileInfo {
+                    name: name.to_string(),
+                    size: f["size"].as_u64().unwrap_or(0),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+    Json(files)
+}
+#[derive(Deserialize)]
+struct HfDownloadReq {
+    repo: String,
+    file: String,
+}
+async fn handle_hf_download(
+    State(app): State<App>,
+    Json(req): Json<HfDownloadReq>,
+) -> Json<serde_json::Value> {
+    let cfg = app.config.lock().await.clone();
+    let dest_dir = if !cfg.model_dir.is_empty() {
+        PathBuf::from(&cfg.model_dir)
+    } else {
+        match auto_detect_model_dir(&cfg.working_dir).await {
+            Some(d) => d,
+            None => {
+                let fallback = dirs::home_dir()
+                    .map(|h| h.join("models"))
+                    .unwrap_or_else(|| PathBuf::from("models"));
+                let _ = tokio::fs::create_dir_all(&fallback).await;
+                fallback
+            }
+        }
+    };
+    let _ = tokio::fs::create_dir_all(&dest_dir).await;
+    let dest_file = dest_dir.join(&req.file);
+    if dest_file.exists() {
+        return Json(serde_json::json!({"status": "exists", "path": dest_file.display().to_string()}));
+    }
+    {
+        let mut prog = app.dl_progress.lock().await;
+        if !prog.done && prog.total > 0 && prog.downloaded < prog.total {
+            return Json(
+                serde_json::json!({"status": "busy", "message": "A download is already in progress"}),
+            );
+        }
+        *prog = DownloadProgress {
+            repo: req.repo.clone(),
+            file: req.file.clone(),
+            downloaded: 0,
+            total: 0,
+            done: false,
+            error: String::new(),
+        };
+    }
+    let progress = app.dl_progress.clone();
+    let url = format!(
+        "https://huggingface.co/{}/resolve/main/{}",
+        req.repo, req.file
+    );
+    let dest_path_str = dest_file.display().to_string();
+    tokio::spawn(async move {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(7200))
+            .build()
+            .unwrap_or_default();
+        let resp = match client.get(&url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                let mut p = progress.lock().await;
+                p.done = true;
+                p.error = format!("Request failed: {}", e);
+                return;
+            }
+        };
+        if !resp.status().is_success() {
+            let mut p = progress.lock().await;
+            p.done = true;
+            p.error = format!("HTTP {}", resp.status());
+            return;
+        }
+        let total = resp.content_length().unwrap_or(0);
+        {
+            let mut p = progress.lock().await;
+            p.total = total;
+        }
+        let tmp_path = dest_file.with_extension("gguf.part");
+        let mut file = match tokio::fs::File::create(&tmp_path).await {
+            Ok(f) => f,
+            Err(e) => {
+                let mut p = progress.lock().await;
+                p.done = true;
+                p.error = format!("File create error: {}", e);
+                return;
+            }
+        };
+        use tokio::io::AsyncWriteExt;
+        let mut stream = resp.bytes_stream();
+        use futures::StreamExt;
+        let mut downloaded: u64 = 0;
+        while let Some(chunk) = stream.next().await {
+            match chunk {
+                Ok(bytes) => {
+                    if file.write_all(&bytes).await.is_err() {
+                        let mut p = progress.lock().await;
+                        p.done = true;
+                        p.error = "Write error".to_string();
+                        return;
+                    }
+                    downloaded += bytes.len() as u64;
+                    let mut p = progress.lock().await;
+                    p.downloaded = downloaded;
+                }
+                Err(e) => {
+                    let mut p = progress.lock().await;
+                    p.done = true;
+                    p.error = format!("Stream error: {}", e);
+                    return;
+                }
+            }
+        }
+        let _ = file.flush().await;
+        drop(file);
+        if let Err(e) = tokio::fs::rename(&tmp_path, &dest_file).await {
+            let mut p = progress.lock().await;
+            p.done = true;
+            p.error = format!("Rename error: {}", e);
+            return;
+        }
+        let mut p = progress.lock().await;
+        p.downloaded = total;
+        p.done = true;
+        tracing::info!("Download complete: {:?}", dest_file);
+    });
+    Json(serde_json::json!({"status": "started", "path": dest_path_str}))
+}
+async fn handle_hf_progress(State(app): State<App>) -> Json<DownloadProgress> {
+    Json(app.dl_progress.lock().await.clone())
+}
 async fn handle_health() -> &'static str {
     "ok"
 }
@@ -935,6 +1177,7 @@ async fn main() -> anyhow::Result<()> {
         sessions: Arc::new(Mutex::new(HashMap::new())),
         config: Arc::new(Mutex::new(config)),
         cwd: Arc::new(Mutex::new(cwd)),
+        dl_progress: Arc::new(Mutex::new(DownloadProgress::default())),
     };
     let router = Router::new()
         .route("/", get(serve_ui))
@@ -945,6 +1188,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/models", get(handle_models))
         .route("/api/dirs", get(handle_dirs))
+        .route("/api/hf/search", get(handle_hf_search))
+        .route("/api/hf/files", get(handle_hf_files))
+        .route("/api/hf/download", post(handle_hf_download))
+        .route("/api/hf/progress", get(handle_hf_progress))
         .route("/health", get(handle_health))
         .layer(CorsLayer::permissive())
         .with_state(app);
