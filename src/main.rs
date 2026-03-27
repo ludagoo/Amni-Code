@@ -5,7 +5,7 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf, process::Stdio, sync::Arc};
+use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::Arc};
 use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
 #[derive(Clone)]
@@ -385,6 +385,7 @@ async fn llm_call(
 }
 async fn agent_loop(app: &App, sid: &str, user_msg: &str) -> ChatRes {
     let config = app.config.lock().await.clone();
+    ensure_model_loaded(&config).await;
     let cwd_path = app.cwd.lock().await.clone();
     {
         let mut sessions = app.sessions.lock().await;
@@ -746,6 +747,93 @@ async fn handle_dirs(
     }
     dirs.sort();
     Json(DirsRes { dirs })
+}
+async fn find_gguf_path(model_dir: &Path, model_name: &str) -> Option<PathBuf> {
+    let target_gguf = format!("{}.gguf", model_name);
+    let mut stack: Vec<(PathBuf, u32)> = vec![(model_dir.to_path_buf(), 0)];
+    while let Some((current_dir, depth)) = stack.pop() {
+        if depth > 3 {
+            continue;
+        }
+        if let Ok(mut rd) = tokio::fs::read_dir(&current_dir).await {
+            while let Ok(Some(e)) = rd.next_entry().await {
+                let path = e.path();
+                if path.is_dir() {
+                    let dname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if !dname.starts_with('.')
+                        && dname != "palace_textures"
+                        && dname != "__pycache__"
+                        && dname != "node_modules"
+                    {
+                        stack.push((path, depth + 1));
+                    }
+                } else if path.file_name().and_then(|n| n.to_str()) == Some(target_gguf.as_str()) {
+                    return Some(path);
+                }
+            }
+        }
+    }
+    None
+}
+async fn ensure_model_loaded(config: &Config) {
+    if config.provider != "ollama" && config.provider != "local" {
+        return;
+    }
+    let model_dir = if !config.model_dir.is_empty() {
+        Some(PathBuf::from(&config.model_dir))
+    } else {
+        auto_detect_model_dir(&config.working_dir).await
+    };
+    let dir = match model_dir {
+        Some(d) => d,
+        None => return,
+    };
+    let gguf_path = match find_gguf_path(&dir, &config.model).await {
+        Some(p) => p,
+        None => return,
+    };
+    tracing::info!(
+        "Model '{}' has GGUF file: {:?} — checking Ollama",
+        config.model,
+        gguf_path
+    );
+    let base = config.base_url.trim_end_matches('/');
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .unwrap_or_default();
+    let already_exists = client
+        .post(format!("{}/api/show", base))
+        .json(&serde_json::json!({"model": config.model}))
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .unwrap_or(false);
+    if already_exists {
+        tracing::info!("Model '{}' already exists in Ollama", config.model);
+        return;
+    }
+    tracing::info!(
+        "Importing '{}' into Ollama from {:?}",
+        config.model,
+        gguf_path
+    );
+    let modelfile = format!("FROM {}", gguf_path.display());
+    match client
+        .post(format!("{}/api/create", base))
+        .json(&serde_json::json!({"model": config.model, "modelfile": modelfile, "stream": false}))
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            tracing::info!("Imported '{}' into Ollama successfully", config.model);
+        }
+        Ok(resp) => {
+            let text = resp.text().await.unwrap_or_default();
+            tracing::warn!("Ollama import failed for '{}': {}", config.model, text);
+        }
+        Err(e) => tracing::warn!("Ollama import request failed: {}", e),
+    }
 }
 async fn auto_detect_model_dir(working_dir: &str) -> Option<PathBuf> {
     let candidates = [
