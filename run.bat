@@ -14,7 +14,7 @@ if errorlevel 1 (
     echo   Rust installed. Continuing...
     echo.
 )
-if not exist "target\release\amni-code.exe" (
+if not exist "target\release\amni.exe" (
     echo   Building Amni-Code - first run...
     echo.
     cargo build --release
@@ -29,4 +29,4 @@ if not exist "target\release\amni-code.exe" (
 )
 echo   Starting Amni-Code...
 echo.
-target\release\amni-code.exe
+target\release\amni.exe

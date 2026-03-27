@@ -63,8 +63,8 @@ The GUI installer handles Rust, Python, GPU detection, API key configuration, mo
 git clone https://github.com/anmire/Amni-Code.git
 cd Amni-Code
 cargo build --release
-target\release\amni-code.exe   # Windows
-# or: ./target/release/amni-code  # Linux/macOS
+target\release\amni.exe   # Windows
+# or: ./target/release/amni  # Linux/macOS
 ```
 
 ### Just Run It
@@ -73,6 +73,14 @@ target\release\amni-code.exe   # Windows
 ```
 
 A standalone window opens automatically. Use `--browser` flag to open in browser instead.
+
+### Global CLI Command
+After running `quickstart.bat`, the `amni` command is installed globally. Open any terminal and type:
+```bash
+cd my-project
+amni
+```
+Amni-Code launches with your project as the working directory. API keys are stored in `~/.amni/.env`.
 
 ## How It Works
 

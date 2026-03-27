@@ -296,14 +296,16 @@ async fn serve_ui() -> Html<&'static str> { Html(include_str!("../static/index.h
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let cwd = std::env::current_dir().unwrap_or_default();
-    let env_path = cwd.join(".env");
-    if env_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&env_path) {
-            for line in content.lines() {
-                let line = line.trim();
-                if line.is_empty() || line.starts_with('#') { continue; }
-                if let Some((k, v)) = line.split_once('=') {
-                    std::env::set_var(k.trim(), v.trim());
+    let home_env = dirs::home_dir().map(|h| h.join(".amni").join(".env")).unwrap_or_default();
+    for env_path in [home_env, cwd.join(".env")] {
+        if env_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&env_path) {
+                for line in content.lines() {
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with('#') { continue; }
+                    if let Some((k, v)) = line.split_once('=') {
+                        std::env::set_var(k.trim(), v.trim());
+                    }
                 }
             }
         }

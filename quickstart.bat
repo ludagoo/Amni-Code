@@ -68,11 +68,29 @@ if errorlevel 1 (
     exit /b 1
 )
 echo.
+echo   Build complete! Installing 'amni' command...
+  echo   ============================================
+echo.
+if not exist "%USERPROFILE%\.amni" mkdir "%USERPROFILE%\.amni"
+copy /Y target\release\amni.exe "%USERPROFILE%\.amni\amni.exe" >nul
+if exist ".env" copy /Y .env "%USERPROFILE%\.amni\.env" >nul
+echo   Copied amni.exe to %USERPROFILE%\.amni\
+echo.
+REM Add to PATH if not already there
+echo %PATH% | findstr /I /C:".amni" >nul
+if errorlevel 1 (
+    powershell -Command "[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path','User') + ';%USERPROFILE%\.amni', 'User')"
+    set "PATH=%PATH%;%USERPROFILE%\.amni"
+    echo   Added %USERPROFILE%\.amni to PATH.
+) else (
+    echo   PATH already configured.
+)
+echo.
 echo   ============================================
-echo     Build complete! Launching Amni-Code...
+echo     Done! Type 'amni' in any terminal to start.
 echo   ============================================
 echo.
-echo   Open http://localhost:3000 in your browser.
+echo   (You may need to restart your terminal for PATH to take effect.)
 echo.
-target\release\amni-code.exe
+target\release\amni.exe
 pause
