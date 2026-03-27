@@ -271,6 +271,7 @@ function toggleTheme(){
   localStorage.setItem('theme', isLight ? 'dark' : 'light');
 }
 function escHtml(s){ const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escJsStr(s){ return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
 function renderMd(text){
   return text
     .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => `<pre><code>${escHtml(code.trim())}</code></pre>`)
@@ -408,7 +409,9 @@ async function loadModels(current){
     const sel = $('#cfg-model');
     sel.innerHTML = '';
     if(data.models.length === 0){
-      sel.innerHTML = '<option>(no models found)</option>';
+      const p = $('#cfg-provider').value;
+      const hint = (p === 'ollama' || p === 'local') ? '(no models — run: ollama pull <model>)' : '(no models found)';
+      sel.innerHTML = `<option>${hint}</option>`;
       return;
     }
     data.models.forEach(m => {
@@ -435,7 +438,7 @@ async function loadDirs(base){
       `<div style="padding:2px 6px;cursor:pointer;border-radius:4px;color:var(--text2)" 
         onmouseenter="this.style.background='var(--surface2)';this.style.color='var(--accent)'" 
         onmouseleave="this.style.background='';this.style.color='var(--text2)'"
-        onclick="selectDir(this,'${escHtml(base)}','${escHtml(d)}')">📁 ${escHtml(d)}</div>`
+        onclick="selectDir(this,'${escJsStr(base)}','${escJsStr(d)}')">📁 ${escHtml(d)}</div>`
     ).join('');
   } catch(e){}
 }
@@ -472,7 +475,9 @@ $('#cfg-provider').addEventListener('change', () => {
   $('#cfg-key').style.display = (p === 'ollama' || p === 'local') ? 'none' : 'block';
   saveConfig().then(() => loadModels());
 });
-$('#cfg-dir').addEventListener('change', () => loadDirs($('#cfg-dir').value));
+$('#cfg-url').addEventListener('change', () => { saveConfig().then(() => loadModels()); });
+$('#cfg-model-dir').addEventListener('change', () => { saveConfig().then(() => loadModels()); });
+$('#cfg-dir').addEventListener('change', () => { saveConfig(); loadDirs($('#cfg-dir').value); });
 loadConfig();
 const savedTheme = localStorage.getItem('theme');
 if(savedTheme === 'light'){

@@ -447,18 +447,34 @@ async fn agent_loop(app: &App, sid: &str, user_msg: &str) -> ChatRes {
                 }
             }
             Err(e) => {
+                let err_msg = format!("Error: {}", e);
+                app.sessions
+                    .lock()
+                    .await
+                    .entry(sid.to_string())
+                    .or_default()
+                    .messages
+                    .push(serde_json::json!({"role": "assistant", "content": &err_msg}));
                 return ChatRes {
                     session_id: sid.into(),
-                    message: format!("Error: {}", e),
+                    message: err_msg,
                     tool_calls: all_tools,
                     done: true,
-                }
+                };
             }
         }
     }
+    let max_msg = "Reached max iterations — try continuing.".to_string();
+    app.sessions
+        .lock()
+        .await
+        .entry(sid.to_string())
+        .or_default()
+        .messages
+        .push(serde_json::json!({"role": "assistant", "content": &max_msg}));
     ChatRes {
         session_id: sid.into(),
-        message: "Reached max iterations — try continuing.".into(),
+        message: max_msg,
         tool_calls: all_tools,
         done: true,
     }
@@ -507,13 +523,18 @@ async fn handle_config_set(State(app): State<App>, Json(req): Json<ConfigReq>) -
 }
 async fn handle_models(State(app): State<App>) -> Json<ModelsRes> {
     let cfg = app.config.lock().await.clone();
+    let base = cfg.base_url.trim_end_matches('/').to_string();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_default();
     let mut models = Vec::new();
-    if cfg.provider == "local" && !cfg.model_dir.is_empty() {
-        // List .gguf and .safetensors files from model_dir recursively
-        let model_path = PathBuf::from(&cfg.model_dir);
-        models = collect_models(&model_path).await;
-    } else if cfg.provider == "ollama" {
-        // Check if Ollama is installed
+    tracing::info!(
+        "Model discovery: provider={}, base_url={}",
+        cfg.provider,
+        base
+    );
+    if cfg.provider == "ollama" {
         let ollama_installed = tokio::process::Command::new("ollama")
             .arg("--version")
             .output()
@@ -521,14 +542,11 @@ async fn handle_models(State(app): State<App>) -> Json<ModelsRes> {
             .map(|o| o.status.success())
             .unwrap_or(false);
         if ollama_installed {
-            // Try to fetch models
-            let mut resp = reqwest::get(format!("{}/api/tags", cfg.base_url)).await;
+            let mut resp = client.get(format!("{}/api/tags", base)).send().await;
             if resp.is_err() {
-                // Server not running, try to start it
                 let _ = tokio::process::Command::new("ollama").arg("serve").spawn();
-                // Wait a bit for it to start
                 tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-                resp = reqwest::get(format!("{}/api/tags", cfg.base_url)).await;
+                resp = client.get(format!("{}/api/tags", base)).send().await;
             }
             if let Ok(r) = resp {
                 if let Ok(json) = r.json::<serde_json::Value>().await {
@@ -542,23 +560,64 @@ async fn handle_models(State(app): State<App>) -> Json<ModelsRes> {
                 }
             }
         }
+        if models.is_empty() && !cfg.model_dir.is_empty() {
+            models = collect_models(&PathBuf::from(&cfg.model_dir)).await;
+        }
     } else if cfg.provider == "local" {
-        if let Ok(resp) = reqwest::get(format!("{}/api/tags", cfg.base_url)).await {
-            if let Ok(json) = resp.json::<serde_json::Value>().await {
-                if let Some(arr) = json["models"].as_array() {
-                    for m in arr {
-                        if let Some(n) = m["name"].as_str() {
-                            models.push(n.to_string());
+        tracing::info!("Local: trying {}/v1/models", base);
+        match client.get(format!("{}/v1/models", base)).send().await {
+            Ok(resp) => {
+                let status = resp.status();
+                match resp.json::<serde_json::Value>().await {
+                    Ok(json) => {
+                        tracing::info!("Local /v1/models status={} body={}", status, json);
+                        if let Some(arr) = json["data"].as_array() {
+                            for m in arr {
+                                if let Some(n) = m["id"].as_str() {
+                                    models.push(n.to_string());
+                                }
+                            }
                         }
                     }
+                    Err(e) => tracing::warn!("Local /v1/models parse error: {}", e),
+                }
+            }
+            Err(e) => tracing::warn!("Local /v1/models fetch error: {}", e),
+        }
+        if models.is_empty() {
+            tracing::info!("Local: trying {}/api/tags", base);
+            match client.get(format!("{}/api/tags", base)).send().await {
+                Ok(resp) => {
+                    let status = resp.status();
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(json) => {
+                            tracing::info!("Local /api/tags status={} body={}", status, json);
+                            if let Some(arr) = json["models"].as_array() {
+                                for m in arr {
+                                    if let Some(n) = m["name"].as_str() {
+                                        models.push(n.to_string());
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => tracing::warn!("Local /api/tags parse error: {}", e),
+                    }
+                }
+                Err(e) => tracing::warn!("Local /api/tags fetch error: {}", e),
+            }
+        }
+        if !cfg.model_dir.is_empty() {
+            let file_models = collect_models(&PathBuf::from(&cfg.model_dir)).await;
+            for m in file_models {
+                if !models.contains(&m) {
+                    models.push(m);
                 }
             }
         }
     } else if cfg.provider == "openai" {
-        // Try to fetch from API
         if !cfg.api_key.is_empty() {
-            if let Ok(resp) = reqwest::Client::new()
-                .get("https://api.openai.com/v1/models")
+            if let Ok(resp) = client
+                .get(format!("{}/v1/models", base))
                 .header("Authorization", format!("Bearer {}", cfg.api_key))
                 .send()
                 .await
@@ -649,6 +708,7 @@ async fn handle_models(State(app): State<App>) -> Json<ModelsRes> {
             .map(|s| s.to_string()),
         );
     }
+    tracing::info!("Model discovery found {} models", models.len());
     Json(ModelsRes { models })
 }
 async fn handle_dirs(
