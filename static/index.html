@@ -296,7 +296,7 @@ function renderMd(text){
     .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => `<pre><code>${escHtml(code.trim())}</code></pre>`)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br>');
+    .replace(/\n/g, '<br>')\n    // Clickable links\n    .replace(/(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline">$1</a>')\n    .replace(/([^\s<]+@[^\s<]+\.[^\s<]+)/g, '<a href="mailto:$1" style="color:var(--accent);text-decoration:underline">$1</a>');
 }
 function addMsg(role, content, tools){
   const w = $('#welcome'); if(w) w.remove();
